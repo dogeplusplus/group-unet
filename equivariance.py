@@ -87,7 +87,7 @@ def main():
 
     loss_fn = nn.BCEWithLogitsLoss()
     for e in range(epochs):
-        train_bar = tqdm(train_loader, desc=f"Train Epoch {e}")
+        train_bar = tqdm(train_loader, ncols=0, desc=f"Train Epoch {e}")
         train_loss = torchmetrics.MeanMetric().to(device)
         train_acc = torchmetrics.MeanMetric().to(device)
         iou = torchmetrics.JaccardIndex(num_classes=2).to(device)
@@ -114,8 +114,8 @@ def main():
 
         val_loss = torchmetrics.MeanMetric().to(device)
         val_acc = torchmetrics.MeanMetric().to(device)
+        val_bar = tqdm(val_loader, n_cols=0, desc=f"Valid Epoch {e}")
         with torch.no_grad():
-            val_bar = tqdm(val_loader, desc=f"Valid Epoch {e}")
             for x, y in val_loader:
                 x = x.to(device)
                 y = y.to(device)
