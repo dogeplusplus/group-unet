@@ -56,8 +56,9 @@ class UNet(nn.Module):
     ):
         super().__init__()
         pairs = list(zip(filters[:-1], filters[1:]))
-        self.init_conv = nn.Conv2d(in_channels, filters[0], kernel_size=3, padding="same")
-    
+        self.init_conv = nn.Conv2d(
+            in_channels, filters[0], kernel_size=3, padding="same")
+
         self.down_convs = nn.ModuleList([
             Block(
                 in_channel,
@@ -80,8 +81,9 @@ class UNet(nn.Module):
             ) for (out_channel, in_channel) in pairs[::-1]
         ])
 
-        self.final_conv = nn.Conv2d(filters[0], out_channels, kernel_size=3, padding="same")
- 
+        self.final_conv = nn.Conv2d(
+            filters[0], out_channels, kernel_size=3, padding="same")
+
     def forward(self, x):
         x = self.init_conv(x)
 
@@ -95,7 +97,6 @@ class UNet(nn.Module):
             x = nn.Upsample(scale_factor=2)(x)
             x = torch.cat([skip, x], dim=1)
             x = up(x)
-        
+
         x = self.final_conv(x)
         return x
-

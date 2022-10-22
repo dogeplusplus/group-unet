@@ -52,7 +52,8 @@ class GroupKernelBase(nn.Module):
         )).to(self.group.identity.device))
 
         self.register_buffer("grid_H", self.group.elements())
-        self.register_buffer("transformed_grid_R2xH", self.create_transformed_grid_R2xH())
+        self.register_buffer("transformed_grid_R2xH",
+                             self.create_transformed_grid_R2xH())
 
     def create_transformed_grid_R2xH(self):
         group_elements = self.group.elements()
@@ -63,7 +64,8 @@ class GroupKernelBase(nn.Module):
         transformed_grid_H = self.group.left_action_on_H(
             self.group.inverse(group_elements), self.grid_H,
         )
-        transformed_grid_H = self.group.normalize_group_elements(transformed_grid_H)
+        transformed_grid_H = self.group.normalize_group_elements(
+            transformed_grid_H)
         transformed_grid = torch.cat(
             (
                 repeat(
@@ -75,8 +77,8 @@ class GroupKernelBase(nn.Module):
                 repeat(
                     transformed_grid_H,
                     "g1 g2 -> g1 g2 h w 1",
-                    h = self.kernel_size,
-                    w = self.kernel_size,
+                    h=self.kernel_size,
+                    w=self.kernel_size,
                 ),
             ), dim=-1
         )
@@ -100,7 +102,8 @@ class LiftingKernelBase(torch.nn.Module):
             torch.linspace(-1, 1, self.kernel_size),
         )).to(self.group.identity.device))
 
-        self.register_buffer("transformed_grid_R2", self.create_transformed_grid_R2())
+        self.register_buffer("transformed_grid_R2",
+                             self.create_transformed_grid_R2())
 
     def create_transformed_grid_R2(self):
         group_elements = self.group.elements()
@@ -129,20 +132,21 @@ class InterpolativeLiftingKernel(LiftingKernelBase):
         torch.nn.init.kaiming_uniform_(self.weight.data, a=math.sqrt(5))
 
     def sample(self):
-        weight = rearrange(self.weight," o i h w -> 1 (o i) h w")
-        weight = repeat(weight, "1 n h w -> g n h w", g = self.group.elements().numel())
+        weight = rearrange(self.weight, " o i h w -> 1 (o i) h w")
+        weight = repeat(weight, "1 n h w -> g n h w",
+                        g=self.group.elements().numel())
 
         transformed_weight = F.grid_sample(
             weight,
             self.transformed_grid_R2,
             mode="bilinear",
             padding_mode="zeros",
-            align_corners=True,            
+            align_corners=True,
         )
 
         transformed_weight = rearrange(
             transformed_weight, "g (o i) h w -> g o i h w", o=self.out_channels, i=self.in_channels
         )
-        transformed_weight = rearrange(transformed_weight, "g o ... -> o g ...")
+        transformed_weight = rearrange(
+            transformed_weight, "g o ... -> o g ...")
         return transformed_weight
-

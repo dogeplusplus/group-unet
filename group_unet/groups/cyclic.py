@@ -26,7 +26,8 @@ class CyclicGroup(GroupBase):
 
     def left_action_on_R2(self, h_batch, x_batch):
         x_batch = x_batch
-        batched_rep = torch.stack([self.matrix_representation(h) for h in h_batch])
+        batched_rep = torch.stack(
+            [self.matrix_representation(h) for h in h_batch])
         out = torch.einsum("boi,ixy->bxyo", batched_rep, x_batch)
 
         return out.roll(shifts=1, dims=-1)
@@ -51,4 +52,3 @@ class CyclicGroup(GroupBase):
     def normalize_group_elements(self, h):
         largest_elem = 2 * np.pi * (self.order - 1.) / self.order
         return (2 * h / largest_elem) - 1.
-

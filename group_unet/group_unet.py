@@ -10,8 +10,10 @@ from group_unet.layers import GroupConvolution, LiftingConvolution
 class GroupBlock(nn.Module):
     def __init__(self, group, in_channels, out_channels, kernel_size, activation):
         super().__init__()
-        self.group_conv1 = GroupConvolution(group, in_channels, out_channels, kernel_size)
-        self.group_conv2 = GroupConvolution(group, out_channels, out_channels, kernel_size)
+        self.group_conv1 = GroupConvolution(
+            group, in_channels, out_channels, kernel_size)
+        self.group_conv2 = GroupConvolution(
+            group, out_channels, out_channels, kernel_size)
 
         self.activation = activation
 
@@ -25,7 +27,7 @@ class GroupBlock(nn.Module):
         x = self.activation(x)
 
         return x
-    
+
 
 class GroupUNet(nn.Module):
     def __init__(
@@ -40,8 +42,9 @@ class GroupUNet(nn.Module):
         super().__init__()
         self.ord = group.elements().numel()
         pairs = list(zip(filters[:-1], filters[1:]))
-        self.lifting_conv = LiftingConvolution(group, in_channels, filters[0], kernel_size=3)
-    
+        self.lifting_conv = LiftingConvolution(
+            group, in_channels, filters[0], kernel_size=3)
+
         self.down_convs = nn.ModuleList([
             GroupBlock(
                 group,
@@ -64,8 +67,9 @@ class GroupUNet(nn.Module):
             ) for (out_channel, in_channel) in pairs[::-1]
         ])
 
-        self.final_conv = GroupConvolution(group, filters[0], out_channels, kernel_size)
- 
+        self.final_conv = GroupConvolution(
+            group, filters[0], out_channels, kernel_size)
+
     def forward(self, x):
         x = self.lifting_conv(x)
 
@@ -79,9 +83,8 @@ class GroupUNet(nn.Module):
             x = nn.Upsample(scale_factor=(1, 2, 2))(x)
             x = torch.cat([skip, x], dim=1)
             x = up(x)
-        
+
         # Final convolution and group projection by averaging
         x = self.final_conv(x)
         x = reduce(x, "b c g h w -> b c h w", "mean")
         return x
-

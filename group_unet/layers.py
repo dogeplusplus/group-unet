@@ -96,7 +96,8 @@ class GroupConvolution(nn.Module):
     def forward(self, x):
         x = rearrange(x, "b c g h w -> b (c g) h w")
         conv_kernels = self.kernel.sample()
-        conv_kernels = rearrange(conv_kernels, "o g i g2 h w -> (o g) (i g2) h w")
+        conv_kernels = rearrange(
+            conv_kernels, "o g i g2 h w -> (o g) (i g2) h w")
         x = F.conv2d(
             input=x,
             weight=conv_kernels,
@@ -104,4 +105,3 @@ class GroupConvolution(nn.Module):
         )
         x = rearrange(x, "b (c g) h w -> b c g h w", c=self.out_channels)
         return x
-

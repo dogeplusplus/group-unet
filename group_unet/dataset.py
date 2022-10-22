@@ -9,7 +9,8 @@ class ButterflyDataset(Dataset):
     def __init__(self, images: List[Path], transform=None):
         self.images = images
         self.labels = [
-            str(x).replace("images", "segmentations").replace(".png", "_seg0.png")
+            str(x).replace("images", "segmentations").replace(
+                ".png", "_seg0.png")
             for x in self.images
         ]
         self.transform = transform
@@ -28,4 +29,3 @@ class ButterflyDataset(Dataset):
             segmentation = transformed["mask"]
 
         return image, segmentation
-
