@@ -21,7 +21,7 @@ from group_unet.groups.cyclic import CyclicGroup
 
 def main():
     seed = 42
-    batch_size = 32
+    batch_size = 128
     dataset = list(Path("data", "leedsbutterfly", "images").rglob("*.png"))
     validation_ratio = 0.2
     validation_size = int(len(dataset) * validation_ratio)
@@ -125,7 +125,7 @@ def main():
 
         val_loss = torchmetrics.MeanMetric().to(device)
         val_acc = torchmetrics.MeanMetric().to(device)
-        val_bar = tqdm(val_loader, n_cols=0, desc=f"Valid Epoch {e}")
+        val_bar = tqdm(val_loader, ncols=0, desc=f"Valid Epoch {e}")
         with torch.no_grad():
             for x, y in val_loader:
                 x = x.to(device)
