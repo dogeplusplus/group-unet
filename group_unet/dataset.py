@@ -1,5 +1,3 @@
-import torch
-
 from einops import reduce
 from typing import List
 from pathlib import Path
