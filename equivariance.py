@@ -57,16 +57,6 @@ def main():
         num_workers=8,
     )
 
-    # NUM_IMAGES = 4
-    # images = [train_ds[idx][0] for idx in range(NUM_IMAGES)]
-    # orig_images = [Image.fromarray(train_ds.data[idx].numpy()) for idx in range(NUM_IMAGES)]
-    # orig_images = [test_transform(img) for img in orig_images]
-
-    # img_grid = torchvision.utils.make_grid(
-    #     torch.stack(images + orig_images, dim = 0), nrow=4, normalize=True, pad_value=0.5
-    # )
-    # img_grid = img_grid.permute(1, 2, 0)
-
     model = UNet(
         in_channels=3,
         out_channels=1,
@@ -130,6 +120,7 @@ def main():
                 x = x.to(device)
                 y = y.to(device)
                 predictions = model(x)
+                predictions = rearrange(predictions, "b 1 h w -> b h w")
                 loss = loss_fn(predictions, y)
                 val_loss.update(loss)
                 jaccard = iou(predictions, torch.sigmoid(y).to(torch.uint8))
