@@ -10,7 +10,7 @@ class GroupBase(nn.Module):
     def __init__(self, dimension, identity):
         super().__init__()
         self.dimension = dimension
-        self.register_buffer("identity", torch.Tensor(identity))
+        self.register_buffer("identity", torch.tensor(identity))
 
     def elements(self):
         raise NotImplementedError()

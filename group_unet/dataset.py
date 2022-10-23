@@ -3,7 +3,6 @@ import cv2
 from einops import reduce
 from pathlib import Path
 from typing import List, Tuple
-from imageio import imread, imwrite
 from torch.utils.data import Dataset
 
 
@@ -21,8 +20,8 @@ class ButterflyDataset(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        image = imread(str(self.images[idx]))
-        segmentation = imread(str(self.labels[idx])) / 255
+        image = cv2.imread(str(self.images[idx]))
+        segmentation = cv2.imread(str(self.labels[idx])) / 255
         segmentation = reduce(segmentation, "h w c -> h w", "max")
 
         if self.transform is not None:
@@ -44,14 +43,14 @@ def resize_images(dataset_path: Path, destination: Path, size: Tuple[int, int] =
     dest_segments.mkdir(parents=True)
 
     for img_path in images.rglob("*.png"):
-        image = imread(img_path)
+        image = cv2.imread(img_path)
         image = cv2.resize(image, size)
-        imwrite(dest_images / img_path.name, image)
+        cv2.imwrite(dest_images / img_path.name, image)
 
     for seg_path in segmentations.rglob("*.png"):
-        segmentation = imread(seg_path)
+        segmentation = cv2.imread(seg_path)
         segmentation = cv2.resize(segmentation, size)
-        imwrite(dest_segments / seg_path.name, segmentation)
+        cv2.imwrite(dest_segments / seg_path.name, segmentation)
 
 
 if __name__ == "__main__":

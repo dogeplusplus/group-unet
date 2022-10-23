@@ -17,5 +17,6 @@ setup(
         "torchvision",
         "torchmetrics",
         "albumentations",
+        "opencv-python",
     ],
 )
