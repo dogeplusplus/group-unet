@@ -1,7 +1,9 @@
+import cv2
+
 from einops import reduce
-from typing import List
 from pathlib import Path
-from imageio import imread
+from typing import List, Tuple
+from imageio import imread, imwrite
 from torch.utils.data import Dataset
 
 
@@ -29,3 +31,30 @@ class ButterflyDataset(Dataset):
             segmentation = transformed["mask"]
 
         return image, segmentation
+
+
+def resize_images(dataset_path: Path, destination: Path, size: Tuple[int, int] = (256, 256)):
+    images = dataset_path / "images"
+    segmentations = dataset_path / "segmentations"
+
+    dest_images = destination / "images"
+    dest_segments = destination / "segmentations"
+
+    dest_images.mkdir(parents=True)
+    dest_segments.mkdir(parents=True)
+
+    for img_path in images.rglob("*.png"):
+        image = imread(img_path)
+        image = cv2.resize(image, size)
+        imwrite(dest_images / img_path.name, image)
+
+    for seg_path in segmentations.rglob("*.png"):
+        segmentation = imread(seg_path)
+        segmentation = cv2.resize(segmentation, size)
+        imwrite(dest_segments / seg_path.name, segmentation)
+
+
+if __name__ == "__main__":
+    dataset_path = Path("data", "leedsbutterfly")
+    dest_path = Path("data", "leedsbutterfly_resized")
+    resize_images(dataset_path, dest_path)
