@@ -1,3 +1,4 @@
+import wandb
 import torch
 import torchmetrics
 import numpy as np
@@ -8,7 +9,8 @@ import torch.nn.functional as F
 
 from tqdm import tqdm
 from pathlib import Path
-from einops import rearrange
+from einops import rearrange, repeat, reduce
+from torchvision.utils import make_grid
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 from albumentations.pytorch.transforms import ToTensorV2
@@ -19,7 +21,7 @@ from group_unet.unet import UNet
 from group_unet.groups.cyclic import CyclicGroup
 
 
-def compute_iou(preds: torch.Tensor, targets: torch.Tensor):
+def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     eps = 1e-8
     intersection = (preds & targets).sum()
     union = (preds | targets).sum()
@@ -28,6 +30,11 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor):
 
 
 def main():
+    wandb.init(project="group-unet")
+
+    epochs = 50
+    in_channels = 3
+    out_channels = 1
     seed = 42
     batch_size = 64
     dataset = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
@@ -36,6 +43,37 @@ def main():
     np.random.seed(seed)
     np.random.shuffle(dataset)
     train_images, val_images = dataset[validation_size:], dataset[:validation_size]
+    model_type = "unet"
+    filters = [32, 32, 64, 64]
+
+    wandb.config.update(dict(
+        epochs=epochs,
+        seed=seed,
+        batch_size=batch_size,
+        model_type=model_type,
+        filters=filters,
+        in_channels=in_channels,
+        out_channels=out_channels,
+    ))
+
+    if model_type == "unet":
+        model = UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            filters=filters,
+            kernel_size=3,
+            stride=1,
+            activation=F.relu,
+        )
+    else:
+        model = GroupUNet(
+            group=CyclicGroup(4),
+            in_channels=in_channels,
+            out_channels=out_channels,
+            filters=filters,
+            kernel_size=3,
+            activation=F.relu,
+        )
 
     train_transform = A.Compose([
         A.Normalize(),
@@ -48,8 +86,33 @@ def main():
         ToTensorV2(),
     ])
 
+    raw_ds = ButterflyDataset(train_images, transform=None)
     train_ds = ButterflyDataset(train_images, transform=train_transform)
     val_ds = ButterflyDataset(val_images, transform=val_transform)
+
+    num_samples = 8
+    raw_loader = DataLoader(raw_ds, batch_size=batch_size)
+    sample_images, sample_labels = next(iter(raw_loader))
+    sample_images = rearrange(sample_images, "b h w c -> b c h w")
+    sample_images = sample_images[:num_samples]
+    sample_labels = sample_labels[:num_samples]
+    image_grid = rearrange(make_grid(sample_images, nrow=4), "c h w -> h w c").numpy()
+    mask_grid = rearrange(make_grid(repeat(sample_labels, "b h w -> b 1 h w"), nrow=4), "c h w -> h w c").numpy()
+    mask_grid = reduce(mask_grid, "h w c -> h w", "max")
+
+    class_labels = {
+        1: "butterfly",
+    }
+
+    wandb.log({
+        "images": wandb.Image(
+            image_grid, caption="Images", masks={
+                "ground_truth": {
+                    "mask_data": mask_grid,
+                    "class_labels": class_labels,
+                }
+            })
+    })
 
     train_loader = DataLoader(
         train_ds,
@@ -66,27 +129,8 @@ def main():
         pin_memory=True,
     )
 
-    model = UNet(
-        in_channels=3,
-        out_channels=1,
-        filters=[32, 32, 64, 64],
-        kernel_size=3,
-        stride=1,
-        activation=F.relu,
-    )
-
-    model = GroupUNet(
-        group=CyclicGroup(4),
-        in_channels=3,
-        out_channels=1,
-        filters=[16, 16, 32, 32],
-        kernel_size=3,
-        activation=F.relu,
-    )
-
     print(sum(x.numel() for x in model.parameters() if x.requires_grad))
 
-    epochs = 50
     step = 0
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -120,7 +164,6 @@ def main():
                 scaler.update()
                 optimizer.zero_grad()
 
-            # jaccard = iou(torch.sigmoid(predictions).to(torch.long), y.to(torch.long))
             jaccard = compute_iou(torch.sigmoid(predictions) > THRESHOLD, y.to(torch.uint8))
             train_loss.update(loss)
             train_acc.update(jaccard)

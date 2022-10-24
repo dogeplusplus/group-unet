@@ -21,6 +21,8 @@ class ButterflyDataset(Dataset):
 
     def __getitem__(self, idx):
         image = cv2.imread(str(self.images[idx]))
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         segmentation = cv2.imread(str(self.labels[idx])) / 255
         segmentation = reduce(segmentation, "h w c -> h w", "max")
 

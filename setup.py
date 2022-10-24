@@ -18,5 +18,6 @@ setup(
         "torchmetrics",
         "albumentations",
         "opencv-python",
+        "wandb",
     ],
 )
