@@ -8,6 +8,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from tqdm import tqdm
+from typing import Tuple
 from pathlib import Path
 from einops import rearrange, repeat, reduce
 from torchvision.utils import make_grid
@@ -29,9 +30,28 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     return iou
 
 
+def create_image_grid(images: torch.Tensor, labels: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
+    sample_images = rearrange(images, "b h w c -> b c h w")
+    image_grid = rearrange(make_grid(sample_images, nrow=4), "c h w -> h w c").numpy()
+    mask_grid = rearrange(make_grid(repeat(labels, "b h w -> b 1 h w"), nrow=4), "c h w -> h w c").numpy()
+    mask_grid = reduce(mask_grid, "h w c -> h w", "max")
+
+    return image_grid, mask_grid
+
+
+def preprocess_sample_images(images: torch.Tensor, transform: A.Compose) -> torch.Tensor:
+    images = [transform(image=image.numpy())["image"] for image in images]
+    images = torch.stack(images)
+
+    return images
+
+
+def evaluate_metric(x: torchmetrics.Metric) -> float:
+    return x.compute().detach().cpu().numpy()
+
+
 def main():
     wandb.init(project="group-unet")
-
     epochs = 50
     in_channels = 3
     out_channels = 1
@@ -45,6 +65,7 @@ def main():
     train_images, val_images = dataset[validation_size:], dataset[:validation_size]
     model_type = "unet"
     filters = [32, 32, 64, 64]
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     wandb.config.update(dict(
         epochs=epochs,
@@ -90,19 +111,18 @@ def main():
     train_ds = ButterflyDataset(train_images, transform=train_transform)
     val_ds = ButterflyDataset(val_images, transform=val_transform)
 
+    # Log sample images
     num_samples = 8
     raw_loader = DataLoader(raw_ds, batch_size=batch_size)
     sample_images, sample_labels = next(iter(raw_loader))
-    sample_images = rearrange(sample_images, "b h w c -> b c h w")
     sample_images = sample_images[:num_samples]
     sample_labels = sample_labels[:num_samples]
-    image_grid = rearrange(make_grid(sample_images, nrow=4), "c h w -> h w c").numpy()
-    mask_grid = rearrange(make_grid(repeat(sample_labels, "b h w -> b 1 h w"), nrow=4), "c h w -> h w c").numpy()
-    mask_grid = reduce(mask_grid, "h w c -> h w", "max")
 
     class_labels = {
         1: "butterfly",
     }
+    image_grid, mask_grid = create_image_grid(sample_images, sample_labels)
+    sample_images = preprocess_sample_images(sample_images, train_transform).to(device)
 
     wandb.log({
         "images": wandb.Image(
@@ -129,16 +149,16 @@ def main():
         pin_memory=True,
     )
 
-    print(sum(x.numel() for x in model.parameters() if x.requires_grad))
-
     step = 0
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
-    display_every = 1
+    display_every = 10
+    log_every = 5
 
     accumulation_steps = max(1, 64 // batch_size)
     THRESHOLD = 0.5
+
+    def eval_metric(x): return x.compute().detach().cpu().numpy()
 
     loss_fn = nn.BCEWithLogitsLoss()
     for e in range(epochs):
@@ -159,7 +179,7 @@ def main():
 
             scaler.scale(loss).backward()
 
-            if (idx+1) % accumulation_steps == 0:
+            if (step+1) % accumulation_steps == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
@@ -170,10 +190,11 @@ def main():
 
             if idx % display_every == 0:
                 train_bar.set_postfix({
-                    "loss": train_loss.compute().detach().cpu().numpy(),
-                    "accuracy": train_acc.compute().detach().cpu().numpy(),
+                    "loss": evaluate_metric(train_loss),
+                    "accuracy": evaluate_metric(train_acc),
                 })
-                step += 1
+
+            step += 1
 
         val_loss = torchmetrics.MeanMetric().to(device)
         val_acc = torchmetrics.MeanMetric().to(device)
@@ -191,10 +212,41 @@ def main():
 
                 if step % display_every == 0:
                     val_bar.set_postfix({
-                        "loss": val_loss.compute().detach().cpu().numpy(),
-                        "accuracy": val_acc.compute().detach().cpu().numpy(),
+                        "loss": evaluate_metric(val_loss),
+                        "accuracy": evaluate_metric(val_acc),
                     })
                 step += 1
+
+        metrics = {
+            "step": step,
+            "train/loss": evaluate_metric(train_loss),
+            "train/acc": evaluate_metric(train_acc),
+            "val/loss": eval_metric(val_loss),
+            "val/acc": eval_metric(val_acc),
+        }
+
+        # Add image predictions every so often
+        if e % log_every == 0:
+            sample_preds = torch.sigmoid(model(sample_images)) > 0.5
+            pred_grid = rearrange(make_grid(sample_preds, nrow=4), "c h w -> h w c").detach().cpu().numpy()
+            pred_grid = reduce(pred_grid, "h w c -> h w", "max")
+
+            epoch_prediction = {
+                "images": wandb.Image(
+                    image_grid, caption="Predictions", masks={
+                        "ground_truth": {
+                            "mask_data": mask_grid,
+                            "class_labels": class_labels,
+                        },
+                        "predictions": {
+                            "mask_data": pred_grid,
+                            "class_labels": class_labels,
+                        }
+                    })
+            }
+            metrics.update(epoch_prediction)
+
+        wandb.log(metrics)
 
 
 if __name__ == "__main__":
