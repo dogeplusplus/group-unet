@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 
 
+from group_unet.layers import Residual
+
+
 class Block(nn.Module):
     def __init__(
         self,
@@ -44,6 +47,33 @@ class Block(nn.Module):
         return x
 
 
+class ResBlock(nn.Module):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size,
+        stride,
+        activation,
+    ):
+        super().__init__()
+        self.in_channel = in_channel
+        self.out_channel = out_channel
+        self.norm = nn.GroupNorm(num_groups=4, num_channels=self.out_channel)
+
+        self.activation = activation
+        self.residual = Residual(Block(in_channel, in_channel, kernel_size, activation))
+        self.proj = nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding="same")
+
+    def forward(self, x):
+        x = self.residual(x)
+        x = self.proj(x)
+        x = self.norm(x)
+        x = self.activation(x)
+
+        return x
+
+
 class UNet(nn.Module):
     def __init__(
         self,
@@ -53,14 +83,17 @@ class UNet(nn.Module):
         kernel_size,
         stride,
         activation,
+        res_block=False,
     ):
         super().__init__()
         pairs = list(zip(filters[:-1], filters[1:]))
         self.init_conv = nn.Conv2d(
             in_channels, filters[0], kernel_size=3, padding="same")
 
+        block = ResBlock if res_block else Block
+
         self.down_convs = nn.ModuleList([
-            Block(
+            block(
                 in_channel,
                 out_channel,
                 kernel_size,
@@ -72,7 +105,7 @@ class UNet(nn.Module):
         # Reverse filters and pairs
         # Factor of two to account for concatenation
         self.up_convs = nn.ModuleList([
-            Block(
+            block(
                 in_channel * 2,
                 out_channel,
                 kernel_size,

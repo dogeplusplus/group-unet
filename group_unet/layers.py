@@ -8,6 +8,15 @@ from einops import rearrange, repeat
 from group_unet.groups.base import InterpolativeLiftingKernel, GroupKernelBase
 
 
+class Residual(nn.Module):
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def forward(self, x):
+        return self.fn(x) + x
+
+
 class LiftingConvolution(nn.Module):
     def __init__(self, group, in_channels, out_channels, kernel_size):
         super().__init__()

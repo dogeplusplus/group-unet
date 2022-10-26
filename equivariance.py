@@ -85,6 +85,7 @@ def main():
             kernel_size=3,
             stride=1,
             activation=F.relu,
+            res_block=True,
         )
     else:
         model = GroupUNet(

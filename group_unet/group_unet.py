@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from einops import reduce
 
-from group_unet.layers import GroupConvolution, LiftingConvolution
+from group_unet.layers import GroupConvolution, LiftingConvolution, Residual
 
 
 class GroupBlock(nn.Module):
@@ -27,15 +27,6 @@ class GroupBlock(nn.Module):
         x = self.activation(x)
 
         return x
-
-
-class Residual(nn.Module):
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
-
-    def forward(self, x):
-        return self.fn(x) + x
 
 
 class ResGroupBlock(nn.Module):
