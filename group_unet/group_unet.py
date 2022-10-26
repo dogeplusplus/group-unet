@@ -29,6 +29,31 @@ class GroupBlock(nn.Module):
         return x
 
 
+class Residual(nn.Module):
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def forward(self, x):
+        return self.fn(x) + x
+
+
+class ResGroupBlock(nn.Module):
+    def __init__(self, group, in_channels, out_channels, kernel_size, activation):
+        super().__init__()
+        self.activation = activation
+        self.residual = Residual(GroupBlock(group, in_channels, in_channels, kernel_size, activation))
+        self.proj = GroupConvolution(group, in_channels, out_channels, kernel_size)
+
+    def forward(self, x):
+        x = self.residual(x)
+        x = self.proj(x)
+        x = F.layer_norm(x, x.shape[-4:])
+        x = self.activation(x)
+
+        return x
+
+
 class GroupUNet(nn.Module):
     def __init__(
         self,
@@ -38,6 +63,7 @@ class GroupUNet(nn.Module):
         filters,
         kernel_size,
         activation,
+        res_block=False,
     ):
         super().__init__()
         self.ord = group.elements().numel()
@@ -45,8 +71,10 @@ class GroupUNet(nn.Module):
         self.lifting_conv = LiftingConvolution(
             group, in_channels, filters[0], kernel_size=3)
 
+        block = ResGroupBlock if res_block else GroupBlock
+
         self.down_convs = nn.ModuleList([
-            GroupBlock(
+            block(
                 group,
                 in_channel,
                 out_channel,
@@ -58,7 +86,7 @@ class GroupUNet(nn.Module):
         # Reverse filters and pairs
         # Factor of two to account for concatenation
         self.up_convs = nn.ModuleList([
-            GroupBlock(
+            block(
                 group,
                 in_channel * 2,
                 out_channel,

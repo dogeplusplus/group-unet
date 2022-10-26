@@ -52,19 +52,19 @@ def evaluate_metric(x: torchmetrics.Metric) -> float:
 
 def main():
     wandb.init(project="group-unet")
-    epochs = 50
+    epochs = 100
     in_channels = 3
     out_channels = 1
     seed = 42
-    batch_size = 64
+    batch_size = 32
     dataset = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
     validation_ratio = 0.2
     validation_size = int(len(dataset) * validation_ratio)
     np.random.seed(seed)
     np.random.shuffle(dataset)
     train_images, val_images = dataset[validation_size:], dataset[:validation_size]
-    model_type = "unet"
-    filters = [32, 32, 64, 64]
+    model_type = "group_unet"
+    filters = [16, 16, 32, 32]
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     wandb.config.update(dict(
@@ -94,6 +94,7 @@ def main():
             filters=filters,
             kernel_size=3,
             activation=F.relu,
+            res_block=True,
         )
 
     train_transform = A.Compose([
