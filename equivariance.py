@@ -8,15 +8,19 @@ import albumentations as A
 import torch.optim as optim
 import torch.nn.functional as F
 
-from dotenv import load_dotenv, find_dotenv
+
 from tqdm import tqdm
 from typing import Tuple
 from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 from einops import rearrange, repeat, reduce
 from torchvision.utils import make_grid
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 from albumentations.pytorch.transforms import ToTensorV2
+from albumentations.augmentations.geometric.rotate import SafeRotate
+from albumentations.augmentations.transforms import ColorJitter
+from albumentations.augmentations.transforms import RandomBrightnessContrast
 
 from group_unet.dataset import ButterflyDataset
 from group_unet.group_unet import GroupUNet
@@ -90,7 +94,15 @@ def train_model():
             res_block=True,
         )
 
-    train_transform = A.Compose([
+    minimal_transform = A.Compose([
+        A.Normalize(),
+        ToTensorV2(),
+    ])
+
+    full_transform = A.Compose([
+        ColorJitter(),
+        RandomBrightnessContrast(),
+        SafeRotate(limit=90),
         A.Normalize(),
         ToTensorV2(),
     ])
@@ -100,6 +112,11 @@ def train_model():
         A.RandomRotate90(),
         ToTensorV2(),
     ])
+
+    if wandb.config.full_augmentation:
+        train_transform = full_transform
+    else:
+        train_transform = minimal_transform
 
     raw_ds = ButterflyDataset(train_images, transform=None)
     train_ds = ButterflyDataset(train_images, transform=train_transform)
@@ -251,15 +268,16 @@ def main():
         "metric": {"goal": "minimize", "name": "val/loss"},
         "parameters": {
             "model_type": {"values": ["unet", "group_unet"]},
-            "lr": {"max": 1e-2, "min": 1e-5},
+            "lr": {"values": [1e-4]},
             "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
-            "epochs": {"values": [5]},
-            "batch_size": {"values": [32]},
+            "epochs": {"values": [50]},
+            "batch_size": {"values": [16]},
+            "full_augmentation": {"values": [True, False]},
         },
     }
 
     sweep_id = wandb.sweep(sweep=sweep_configuration, project="group-unet")
-    wandb.agent(sweep_id, function=train_model)
+    wandb.agent(sweep_id, function=train_model, count=4)
 
 
 if __name__ == "__main__":
