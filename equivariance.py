@@ -69,16 +69,6 @@ def train_model():
     filters = wandb.config.filters
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    wandb.config.update(dict(
-        epochs=epochs,
-        seed=seed,
-        batch_size=batch_size,
-        model_type=model_type,
-        filters=filters,
-        in_channels=in_channels,
-        out_channels=out_channels,
-    ))
-
     if model_type == "unet":
         model = UNet(
             in_channels=in_channels,
