@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from einops import reduce
 
@@ -15,15 +14,17 @@ class GroupBlock(nn.Module):
         self.group_conv2 = GroupConvolution(
             group, out_channels, out_channels, kernel_size)
 
+        self.norm1 = nn.GroupNorm(num_groups=4, num_channels=out_channels)
+        self.norm2 = nn.GroupNorm(num_groups=4, num_channels=out_channels)
         self.activation = activation
 
     def forward(self, x):
         x = self.group_conv1(x)
-        x = F.layer_norm(x, x.shape[-4:])
+        x = self.norm1(x)
         x = self.activation(x)
 
         x = self.group_conv2(x)
-        x = F.layer_norm(x, x.shape[-4:])
+        x = self.norm2(x)
         x = self.activation(x)
 
         return x
@@ -35,11 +36,12 @@ class ResGroupBlock(nn.Module):
         self.activation = activation
         self.residual = Residual(GroupBlock(group, in_channels, in_channels, kernel_size, activation))
         self.proj = GroupConvolution(group, in_channels, out_channels, kernel_size)
+        self.norm = nn.GroupNorm(num_groups=4, num_channels=out_channels)
 
     def forward(self, x):
         x = self.residual(x)
         x = self.proj(x)
-        x = F.layer_norm(x, x.shape[-4:])
+        x = self.norm(x)
         x = self.activation(x)
 
         return x
