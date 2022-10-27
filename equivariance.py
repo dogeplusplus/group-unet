@@ -1,3 +1,4 @@
+import os
 import wandb
 import torch
 import torchmetrics
@@ -7,6 +8,7 @@ import albumentations as A
 import torch.optim as optim
 import torch.nn.functional as F
 
+from dotenv import load_dotenv, find_dotenv
 from tqdm import tqdm
 from typing import Tuple
 from pathlib import Path
@@ -50,21 +52,21 @@ def evaluate_metric(x: torchmetrics.Metric) -> float:
     return x.compute().detach().cpu().numpy()
 
 
-def main():
+def train_model():
     wandb.init(project="group-unet")
-    epochs = 100
+    epochs = wandb.config.epochs
     in_channels = 3
     out_channels = 1
     seed = 42
-    batch_size = 32
+    batch_size = wandb.config.batch_size
     dataset = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
     validation_ratio = 0.2
     validation_size = int(len(dataset) * validation_ratio)
     np.random.seed(seed)
     np.random.shuffle(dataset)
     train_images, val_images = dataset[validation_size:], dataset[:validation_size]
-    model_type = "group_unet"
-    filters = [16, 16, 32, 32]
+    model_type = wandb.config.model_type
+    filters = wandb.config.filters
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     wandb.config.update(dict(
@@ -115,7 +117,7 @@ def main():
 
     # Log sample images
     num_samples = 8
-    raw_loader = DataLoader(raw_ds, batch_size=batch_size)
+    raw_loader = DataLoader(raw_ds, batch_size=batch_size, shuffle=True)
     sample_images, sample_labels = next(iter(raw_loader))
     sample_images = sample_images[:num_samples]
     sample_labels = sample_labels[:num_samples]
@@ -152,7 +154,7 @@ def main():
     )
 
     step = 0
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=wandb.config.lr)
     model.to(device)
     display_every = 10
     log_every = 5
@@ -249,6 +251,25 @@ def main():
             metrics.update(epoch_prediction)
 
         wandb.log(metrics)
+
+
+def main():
+    load_dotenv(find_dotenv())
+    sweep_configuration = {
+        "method": "random",
+        "name": f"{os.environ['WANDB_USERNAME']}/group-unet/sweep",
+        "metric": {"goal": "maximize", "name": "val_loss"},
+        "parameters": {
+            "model_type": {"values": ["unet", "group_unet"]},
+            "lr": {"max": 1e-2, "min": 1e-5},
+            "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
+            "epochs": {"values": [50]},
+            "batch_size": {"values": [32]},
+        },
+    }
+
+    sweep_id = wandb.sweep(sweep=sweep_configuration, project="group-unet")
+    wandb.agent(sweep_id, function=train_model)
 
 
 if __name__ == "__main__":

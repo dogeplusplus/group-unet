@@ -62,7 +62,7 @@ class ResBlock(nn.Module):
         self.norm = nn.GroupNorm(num_groups=4, num_channels=self.out_channel)
 
         self.activation = activation
-        self.residual = Residual(Block(in_channel, in_channel, kernel_size, activation))
+        self.residual = Residual(Block(in_channel, in_channel, kernel_size, stride, activation))
         self.proj = nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding="same")
 
     def forward(self, x):
