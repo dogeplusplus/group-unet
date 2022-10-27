@@ -258,12 +258,12 @@ def main():
     sweep_configuration = {
         "method": "random",
         "name": f"{os.environ['WANDB_USERNAME']}/group-unet/sweep",
-        "metric": {"goal": "maximize", "name": "val_loss"},
+        "metric": {"goal": "minimize", "name": "val/loss"},
         "parameters": {
             "model_type": {"values": ["unet", "group_unet"]},
             "lr": {"max": 1e-2, "min": 1e-5},
             "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
-            "epochs": {"values": [50]},
+            "epochs": {"values": [5]},
             "batch_size": {"values": [32]},
         },
     }
