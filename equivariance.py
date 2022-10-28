@@ -37,8 +37,8 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
 
 
 def create_image_grid(images: torch.Tensor, labels: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
-    sample_images = rearrange(images, "b h w c -> b c h w")
-    image_grid = rearrange(make_grid(sample_images, nrow=4), "c h w -> h w c").numpy()
+    image_samples = rearrange(images, "b h w c -> b c h w")
+    image_grid = rearrange(make_grid(image_samples, nrow=4), "c h w -> h w c").numpy()
     mask_grid = rearrange(make_grid(repeat(labels, "b h w -> b 1 h w"), nrow=4), "c h w -> h w c").numpy()
     mask_grid = reduce(mask_grid, "h w c -> h w", "max")
 
@@ -118,32 +118,29 @@ def train_model():
     else:
         train_transform = minimal_transform
 
-    raw_ds = ButterflyDataset(train_images, transform=None)
+    raw_train_ds = ButterflyDataset(train_images, transform=None)
+    raw_val_ds = ButterflyDataset(val_images, transform=None)
     train_ds = ButterflyDataset(train_images, transform=train_transform)
     val_ds = ButterflyDataset(val_images, transform=val_transform)
 
     # Log sample images
     num_samples = 8
-    raw_loader = DataLoader(raw_ds, batch_size=batch_size, shuffle=True)
-    sample_images, sample_labels = next(iter(raw_loader))
-    sample_images = sample_images[:num_samples]
-    sample_labels = sample_labels[:num_samples]
 
-    class_labels = {
-        1: "butterfly",
-    }
-    image_grid, mask_grid = create_image_grid(sample_images, sample_labels)
-    sample_images = preprocess_sample_images(sample_images, train_transform).to(device)
+    raw_train_loader = DataLoader(raw_train_ds, batch_size=batch_size, shuffle=True)
+    train_samples, train_samples_gt = next(iter(raw_train_loader))
+    train_samples = train_samples[:num_samples]
+    train_samples_gt = train_samples_gt[:num_samples]
 
-    wandb.log({
-        "images": wandb.Image(
-            image_grid, caption="Images", masks={
-                "ground_truth": {
-                    "mask_data": mask_grid,
-                    "class_labels": class_labels,
-                }
-            })
-    })
+    train_image_grid, train_gt_grid = create_image_grid(train_samples, train_samples_gt)
+    train_samples = preprocess_sample_images(train_samples, train_transform).to(device)
+
+    raw_val_loader = DataLoader(raw_val_ds, batch_size=batch_size, shuffle=True)
+    val_samples, val_samples_gt = next(iter(raw_val_loader))
+    val_samples = val_samples[:num_samples]
+    val_samples_gt = val_samples_gt[:num_samples]
+
+    val_image_grid, val_gt_grid = create_image_grid(val_samples, val_samples_gt)
+    val_samples = preprocess_sample_images(val_samples, val_transform).to(device)
 
     train_loader = DataLoader(
         train_ds,
@@ -238,22 +235,37 @@ def train_model():
 
         # Add image predictions every so often
         if e % log_every == 0:
-            sample_preds = torch.sigmoid(model(sample_images)) > 0.5
-            pred_grid = rearrange(make_grid(sample_preds, nrow=4), "c h w -> h w c").detach().cpu().numpy()
-            pred_grid = reduce(pred_grid, "h w c -> h w", "max")
+            train_sample_preds = torch.sigmoid(model(train_samples)) > 0.5
+            train_pred_grid = rearrange(make_grid(train_sample_preds, nrow=4), "c h w -> h w c").detach().cpu().numpy()
+            train_pred_grid = reduce(train_pred_grid, "h w c -> h w", "max")
+
+            val_sample_preds = torch.sigmoid(model(val_samples)) > 0.5
+            val_pred_grid = rearrange(make_grid(val_sample_preds, nrow=4), "c h w -> h w c").detach().cpu().numpy()
+            val_pred_grid = reduce(val_pred_grid, "h w c -> h w", "max")
 
             epoch_prediction = {
-                "images": wandb.Image(
-                    image_grid, caption="Predictions", masks={
+                "Train Images": wandb.Image(
+                    train_image_grid, caption="Train Predictions", masks={
                         "ground_truth": {
-                            "mask_data": mask_grid,
-                            "class_labels": class_labels,
+                            "mask_data": train_gt_grid,
+                            "class_labels": train_ds.class_labels,
                         },
                         "predictions": {
-                            "mask_data": pred_grid,
-                            "class_labels": class_labels,
-                        }
-                    })
+                            "mask_data": train_pred_grid,
+                            "class_labels": train_ds.class_labels,
+                        },
+                    }),
+                "Validation Images": wandb.Image(
+                    val_image_grid, caption="Validation Predictions", masks={
+                        "ground_truth": {
+                            "mask_data": val_gt_grid,
+                            "class_labels": val_ds.class_labels,
+                        },
+                        "predictions": {
+                            "mask_data": val_pred_grid,
+                            "class_labels": val_ds.class_labels,
+                        },
+                    }),
             }
             metrics.update(epoch_prediction)
 
@@ -270,14 +282,14 @@ def main():
             "model_type": {"values": ["unet", "group_unet"]},
             "lr": {"values": [1e-4]},
             "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
-            "epochs": {"values": [50]},
+            "epochs": {"values": [5]},
             "batch_size": {"values": [16]},
             "full_augmentation": {"values": [True, False]},
         },
     }
 
     sweep_id = wandb.sweep(sweep=sweep_configuration, project="group-unet")
-    wandb.agent(sweep_id, function=train_model, count=4)
+    wandb.agent(sweep_id, function=train_model, count=2)
 
 
 if __name__ == "__main__":

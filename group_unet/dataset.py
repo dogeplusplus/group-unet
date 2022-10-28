@@ -15,6 +15,37 @@ class ButterflyDataset(Dataset):
             for x in self.images
         ]
         self.transform = transform
+        self.class_labels = {
+            1: "butterfly",
+        }
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        image = cv2.imread(str(self.images[idx]))
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        segmentation = cv2.imread(str(self.labels[idx])) / 255
+        segmentation = reduce(segmentation, "h w c -> h w", "max")
+
+        if self.transform is not None:
+            transformed = self.transform(image=image, mask=segmentation)
+            image = transformed["image"]
+            segmentation = transformed["mask"]
+
+        return image, segmentation
+
+
+class ADE5KOutdoors(Dataset):
+    def __init__(self, images: List[Path], transform=None):
+        self.images = images
+        self.labels = [
+            str(x).replace("images", "annotations").replace(".jpg", ".png")
+            for x in self.images
+        ]
+        self.transform = transform
+        # TODO: get the class labels for this dataset
 
     def __len__(self):
         return len(self.images)
