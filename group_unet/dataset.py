@@ -7,6 +7,11 @@ from torch.utils.data import Dataset
 
 
 class ButterflyDataset(Dataset):
+    class_labels = {
+        1: "butterfly",
+    }
+    spatial_size = (256, 256)
+
     def __init__(self, images: List[Path], transform=None):
         self.images = images
         self.labels = [
@@ -15,9 +20,6 @@ class ButterflyDataset(Dataset):
             for x in self.images
         ]
         self.transform = transform
-        self.class_labels = {
-            1: "butterfly",
-        }
 
     def __len__(self):
         return len(self.images)
@@ -37,15 +39,22 @@ class ButterflyDataset(Dataset):
         return image, segmentation
 
 
-class ADE5KOutdoors(Dataset):
+class BDD100K(Dataset):
+    classes = [
+        "road", "sidewalk", "building", "wall", "fence", "pole", "traffic light",
+        "traffic sign", "vegetation", "terrain", "sky", "person", "rider", "car",
+        "truck", "bus", "train", "motorcycle", "bicycle", "void"
+    ]
+    class_labels = {i: c for i, c in enumerate(classes)}
+    spatial_size = (720, 1280)
+
     def __init__(self, images: List[Path], transform=None):
         self.images = images
         self.labels = [
-            str(x).replace("images", "annotations").replace(".jpg", ".png")
+            str(x).replace(".jpg", "_train_id.png")
             for x in self.images
         ]
         self.transform = transform
-        # TODO: get the class labels for this dataset
 
     def __len__(self):
         return len(self.images)
