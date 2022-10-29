@@ -22,7 +22,7 @@ from albumentations.augmentations.geometric.rotate import SafeRotate
 from albumentations.augmentations.transforms import ColorJitter
 from albumentations.augmentations.transforms import RandomBrightnessContrast
 
-from group_unet.dataset import ButterflyDataset
+from group_unet.dataset import ButterflyDataset, BDD100K
 from group_unet.group_unet import GroupUNet
 from group_unet.unet import UNet
 from group_unet.groups.cyclic import CyclicGroup
@@ -56,6 +56,33 @@ def evaluate_metric(x: torchmetrics.Metric) -> float:
     return x.compute().detach().cpu().numpy()
 
 
+def prepare_butterfly_dataset(train_transform, val_transform):
+    dataset = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
+    np.random.shuffle(dataset)
+    validation_ratio = 0.2
+    validation_size = int(len(dataset) * validation_ratio)
+    train_images, val_images = dataset[validation_size:], dataset[:validation_size]
+
+    raw_train_ds = ButterflyDataset(train_images, transform=None)
+    raw_val_ds = ButterflyDataset(val_images, transform=None)
+    train_ds = ButterflyDataset(train_images, transform=train_transform)
+    val_ds = ButterflyDataset(val_images, transform=val_transform)
+
+    return raw_train_ds, raw_val_ds, train_ds, val_ds
+
+
+def prepare_bdd100k_dataset(train_transform, val_transform):
+    train_images = list(Path("data", "bdd100k", "images", "train").rglob("*.jpg"))
+    val_images = list(Path("data", "bdd100k", "images", "val").rglob("*.jpg"))
+
+    raw_train_ds = BDD100K(train_images, transform=None)
+    raw_val_ds = BDD100K(val_images, transform=None)
+    train_ds = BDD100K(train_images, transform=train_transform)
+    val_ds = BDD100K(val_images, transform=val_transform)
+
+    return raw_train_ds, raw_val_ds, train_ds, val_ds
+
+
 def train_model():
     wandb.init(project="group-unet")
     epochs = wandb.config.epochs
@@ -63,12 +90,8 @@ def train_model():
     out_channels = 1
     seed = 42
     batch_size = wandb.config.batch_size
-    dataset = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
-    validation_ratio = 0.2
-    validation_size = int(len(dataset) * validation_ratio)
+
     np.random.seed(seed)
-    np.random.shuffle(dataset)
-    train_images, val_images = dataset[validation_size:], dataset[:validation_size]
     model_type = wandb.config.model_type
     filters = wandb.config.filters
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -118,10 +141,7 @@ def train_model():
     else:
         train_transform = minimal_transform
 
-    raw_train_ds = ButterflyDataset(train_images, transform=None)
-    raw_val_ds = ButterflyDataset(val_images, transform=None)
-    train_ds = ButterflyDataset(train_images, transform=train_transform)
-    val_ds = ButterflyDataset(val_images, transform=val_transform)
+    raw_train_ds, raw_val_ds, train_ds, val_ds = prepare_butterfly_dataset(train_transform, val_transform)
 
     # Log sample images
     num_samples = 8
@@ -156,9 +176,9 @@ def train_model():
         num_workers=12,
         pin_memory=True,
     )
-
+    lr = wandb.config.lr
     step = 0
-    optimizer = optim.AdamW(model.parameters(), lr=wandb.config.lr)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     model.to(device)
     display_every = 10
     log_every = 5
@@ -243,27 +263,34 @@ def train_model():
             val_pred_grid = rearrange(make_grid(val_sample_preds, nrow=4), "c h w -> h w c").detach().cpu().numpy()
             val_pred_grid = reduce(val_pred_grid, "h w c -> h w", "max")
 
+            # Manipulate the color to override chosen color of the foreground mask
+            color = 3
+            class_labels = {
+                k: v * color for k, v in train_ds.class_labels.items()
+            }
+
+            # Log foreground as 2 to render as a different color in wandb than the default
             epoch_prediction = {
                 "Train Images": wandb.Image(
                     train_image_grid, caption="Train Predictions", masks={
                         "ground_truth": {
-                            "mask_data": train_gt_grid,
-                            "class_labels": train_ds.class_labels,
+                            "mask_data": train_gt_grid * color,
+                            "class_labels": class_labels,
                         },
                         "predictions": {
-                            "mask_data": train_pred_grid,
-                            "class_labels": train_ds.class_labels,
+                            "mask_data": train_pred_grid * color,
+                            "class_labels": class_labels,
                         },
                     }),
                 "Validation Images": wandb.Image(
                     val_image_grid, caption="Validation Predictions", masks={
                         "ground_truth": {
-                            "mask_data": val_gt_grid,
-                            "class_labels": val_ds.class_labels,
+                            "mask_data": val_gt_grid * color,
+                            "class_labels": class_labels
                         },
                         "predictions": {
-                            "mask_data": val_pred_grid,
-                            "class_labels": val_ds.class_labels,
+                            "mask_data": val_pred_grid * color,
+                            "class_labels": class_labels,
                         },
                     }),
             }
@@ -282,14 +309,14 @@ def main():
             "model_type": {"values": ["unet", "group_unet"]},
             "lr": {"values": [1e-4]},
             "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
-            "epochs": {"values": [5]},
-            "batch_size": {"values": [16]},
+            "epochs": {"values": [10]},
+            "batch_size": {"values": [8]},
             "full_augmentation": {"values": [True, False]},
         },
     }
 
     sweep_id = wandb.sweep(sweep=sweep_configuration, project="group-unet")
-    wandb.agent(sweep_id, function=train_model, count=2)
+    wandb.agent(sweep_id, function=train_model, count=1)
 
 
 if __name__ == "__main__":

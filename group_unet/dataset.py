@@ -51,7 +51,7 @@ class BDD100K(Dataset):
     def __init__(self, images: List[Path], transform=None):
         self.images = images
         self.labels = [
-            str(x).replace(".jpg", "_train_id.png")
+            str(x).replace("images", "labels").replace(".jpg", "_train_id.png")
             for x in self.images
         ]
         self.transform = transform
