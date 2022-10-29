@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from typing import Tuple
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from dotenv import load_dotenv, find_dotenv
 from einops import rearrange, repeat, reduce
 from torchvision.utils import make_grid
@@ -266,7 +267,7 @@ def train_model():
             # Manipulate the color to override chosen color of the foreground mask
             color = 3
             class_labels = {
-                k: v * color for k, v in train_ds.class_labels.items()
+                k * color: v for k, v in train_ds.class_labels.items()
             }
 
             # Log foreground as 2 to render as a different color in wandb than the default
@@ -297,6 +298,15 @@ def train_model():
             metrics.update(epoch_prediction)
 
         wandb.log(metrics)
+
+    with TemporaryDirectory() as temp_dir:
+        save_path = Path(temp_dir, "model.pth")
+        torch.save(model.state_dict(), save_path)
+
+        model_artifact = wandb.Artifact("model", type="model")
+        model_artifact.add_file(save_path)
+
+        wandb.log_artifact(model_artifact)
 
 
 def main():
