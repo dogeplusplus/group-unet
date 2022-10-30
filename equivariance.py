@@ -1,4 +1,5 @@
 import os
+import json
 import wandb
 import torch
 import torchmetrics
@@ -64,12 +65,17 @@ def prepare_butterfly_dataset(train_transform, val_transform):
     validation_size = int(len(dataset) * validation_ratio)
     train_images, val_images = dataset[validation_size:], dataset[:validation_size]
 
+    dataset_split = {
+        "train": list(map(str, train_images)),
+        "valid": list(map(str, val_images)),
+    }
+
     raw_train_ds = ButterflyDataset(train_images, transform=None)
     raw_val_ds = ButterflyDataset(val_images, transform=None)
     train_ds = ButterflyDataset(train_images, transform=train_transform)
     val_ds = ButterflyDataset(val_images, transform=val_transform)
 
-    return raw_train_ds, raw_val_ds, train_ds, val_ds
+    return raw_train_ds, raw_val_ds, train_ds, val_ds, dataset_split
 
 
 def prepare_bdd100k_dataset(train_transform, val_transform):
@@ -142,7 +148,19 @@ def train_model():
     else:
         train_transform = minimal_transform
 
-    raw_train_ds, raw_val_ds, train_ds, val_ds = prepare_butterfly_dataset(train_transform, val_transform)
+    (
+        raw_train_ds,
+        raw_val_ds,
+        train_ds,
+        val_ds,
+        dataset_split,
+    ) = prepare_butterfly_dataset(train_transform, val_transform)
+
+    file = wandb.Artifact("dataset_split", type="dataset", description="Train/Validation Split")
+    with TemporaryDirectory() as temp_dir, open(Path(temp_dir, "dataset_split.json"), "w") as f:
+        json.dump(dataset_split, f, indent=4)
+        file.add_file(Path(temp_dir, "dataset_split.json"))
+    wandb.log_artifact(file)
 
     # Log sample images
     num_samples = 8
@@ -333,7 +351,7 @@ def single_run():
     wandb.config.model_type = "unet"
     wandb.config.filters = [32, 32, 64, 64]
     wandb.config.lr = 1e-4
-    wandb.config.epochs = 50
+    wandb.config.epochs = 1
     wandb.config.batch_size = 32
     wandb.config.full_augmentation = True
     train_model()
