@@ -309,8 +309,7 @@ def train_model():
         wandb.log_artifact(model_artifact)
 
 
-def main():
-    load_dotenv(find_dotenv())
+def sweep_run():
     sweep_configuration = {
         "method": "random",
         "name": f"{os.environ['WANDB_USERNAME']}/group-unet/sweep",
@@ -319,14 +318,30 @@ def main():
             "model_type": {"values": ["unet", "group_unet"]},
             "lr": {"values": [1e-4]},
             "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
-            "epochs": {"values": [10]},
+            "epochs": {"values": [100]},
             "batch_size": {"values": [8]},
             "full_augmentation": {"values": [True, False]},
         },
     }
 
     sweep_id = wandb.sweep(sweep=sweep_configuration, project="group-unet")
-    wandb.agent(sweep_id, function=train_model, count=1)
+    wandb.agent(sweep_id, function=train_model, count=8)
+
+
+def single_run():
+    wandb.init(project="group-unet")
+    wandb.config.model_type = "unet"
+    wandb.config.filters = [32, 32, 64, 64]
+    wandb.config.lr = 1e-4
+    wandb.config.epochs = 50
+    wandb.config.batch_size = 32
+    wandb.config.full_augmentation = True
+    train_model()
+
+
+def main():
+    load_dotenv(find_dotenv())
+    single_run()
 
 
 if __name__ == "__main__":
