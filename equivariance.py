@@ -124,7 +124,7 @@ def train_model():
             res_block=True,
         )
 
-    minimal_transform = A.Compose([
+    preprocessing = A.Compose([
         A.Normalize(),
         ToTensorV2(),
     ])
@@ -133,20 +133,18 @@ def train_model():
         ColorJitter(),
         RandomBrightnessContrast(),
         SafeRotate(limit=90),
-        A.Normalize(),
-        ToTensorV2(),
+        preprocessing,
     ])
 
     val_transform = A.Compose([
-        A.Normalize(),
         A.RandomRotate90(),
-        ToTensorV2(),
+        preprocessing,
     ])
 
     if wandb.config.full_augmentation:
         train_transform = full_transform
     else:
-        train_transform = minimal_transform
+        train_transform = preprocessing
 
     (
         raw_train_ds,
@@ -171,7 +169,7 @@ def train_model():
     train_samples_gt = train_samples_gt[:num_samples]
 
     train_image_grid, train_gt_grid = create_image_grid(train_samples, train_samples_gt)
-    train_samples = preprocess_sample_images(train_samples, train_transform).to(device)
+    train_samples = preprocess_sample_images(train_samples, preprocessing).to(device)
 
     raw_val_loader = DataLoader(raw_val_ds, batch_size=batch_size, shuffle=True)
     val_samples, val_samples_gt = next(iter(raw_val_loader))
@@ -179,7 +177,7 @@ def train_model():
     val_samples_gt = val_samples_gt[:num_samples]
 
     val_image_grid, val_gt_grid = create_image_grid(val_samples, val_samples_gt)
-    val_samples = preprocess_sample_images(val_samples, val_transform).to(device)
+    val_samples = preprocess_sample_images(val_samples, preprocessing).to(device)
 
     train_loader = DataLoader(
         train_ds,
@@ -351,7 +349,7 @@ def single_run():
     wandb.config.model_type = "unet"
     wandb.config.filters = [32, 32, 64, 64]
     wandb.config.lr = 1e-4
-    wandb.config.epochs = 1
+    wandb.config.epochs = 50
     wandb.config.batch_size = 32
     wandb.config.full_augmentation = True
     train_model()
