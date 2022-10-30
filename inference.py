@@ -7,6 +7,7 @@ import torch.nn as nn
 import albumentations as A
 import torch.nn.functional as F
 
+from PIL import Image, ImageDraw
 from einops import repeat
 from typing import Tuple
 from scipy.ndimage import rotate
@@ -82,18 +83,14 @@ def main():
     predictions = batched_prediction(model, images, batch_size)
     predictions = [x.numpy()[0].astype(np.uint8) * 255 for x in predictions]
     predictions = [rotate(pred, -angle, reshape=False) for pred, angle in zip(predictions, angles)]
-    predictions = [
-        cv2.putText(
-            pred,
-            text=f"Angle: {angle}",
-            fontFace=1,
-            fontScale=1,
-            org=(10, 10),
-            color=(255, 255, 255)
-        )
-        for pred, angle in zip(predictions, angles)
-    ]
-    frames = [overlay(image, pred) for pred in predictions]
+    predictions = [overlay(image, pred) for pred in predictions]
+
+    frames = []
+    for angle, pred in zip(angles, predictions):
+        frame = Image.fromarray(pred)
+        draw = ImageDraw.Draw(frame)
+        draw.text((0, 0), f"Angle: {angle}", (255, 255, 255))
+        frames.append(frame)
     imageio.mimsave("predictions.gif", frames, fps=8)
 
 
