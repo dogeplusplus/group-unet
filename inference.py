@@ -1,4 +1,5 @@
 import cv2
+import wandb
 import torch
 import random
 import imageio
@@ -7,15 +8,55 @@ import torch.nn as nn
 import albumentations as A
 import torch.nn.functional as F
 
-from PIL import Image, ImageDraw
-from einops import repeat
 from typing import Tuple
-from scipy.ndimage import rotate
 from pathlib import Path
+from einops import repeat
+from scipy.ndimage import rotate
+from PIL import Image, ImageDraw
+from tempfile import TemporaryDirectory
 from albumentations.pytorch.transforms import ToTensorV2
 
+from group_unet.unet import UNet
 from group_unet.group_unet import GroupUNet
 from group_unet.groups.cyclic import CyclicGroup
+
+
+def load_model(model_uri: str) -> nn.Module:
+    api = wandb.Api()
+    artifact = api.artifact(model_uri)
+
+    run_id = artifact.logged_by().id
+    run = api.run(f"group-unet/{run_id}")
+    config = run.config
+
+    if config["model_type"] == "unet":
+        model = UNet(
+            config["in_channels"],
+            config["out_channels"],
+            config["filters"],
+            config["kernel_size"],
+            config["stride"],
+            F.relu,
+            config["res_block"]
+        )
+    elif config["model_type"] == "group_unet":
+        model = GroupUNet(
+            CyclicGroup(4),
+            config["in_channels"],
+            config["out_channels"],
+            config["filters"],
+            config["kernel_size"],
+            F.relu,
+            config["res_block"],
+        )
+
+    with TemporaryDirectory() as temp_dir:
+        artifact.download(temp_dir)
+        state_dict = torch.load(Path(temp_dir, "model.pth"))
+
+    model.load_state_dict(state_dict)
+
+    return model
 
 
 def batched_prediction(

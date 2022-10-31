@@ -91,10 +91,10 @@ def prepare_bdd100k_dataset(train_transform, val_transform):
 
 
 def train_model():
-    wandb.init(project="group-unet")
+    run = wandb.init(project="group-unet")
     epochs = wandb.config.epochs
-    in_channels = 3
-    out_channels = 1
+    in_channels = wandb.config.in_channels
+    out_channels = wandb.config.out_channels
     seed = 42
     batch_size = wandb.config.batch_size
 
@@ -102,16 +102,18 @@ def train_model():
     model_type = wandb.config.model_type
     filters = wandb.config.filters
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    kernel_size = wandb.config.kernel_size
+    res_block = wandb.config.res_block
 
     if model_type == "unet":
         model = UNet(
             in_channels=in_channels,
             out_channels=out_channels,
             filters=filters,
-            kernel_size=3,
+            kernel_size=kernel_size,
             stride=1,
             activation=F.relu,
-            res_block=True,
+            res_block=res_block,
         )
     else:
         model = GroupUNet(
@@ -119,9 +121,9 @@ def train_model():
             in_channels=in_channels,
             out_channels=out_channels,
             filters=filters,
-            kernel_size=3,
+            kernel_size=kernel_size,
             activation=F.relu,
-            res_block=True,
+            res_block=res_block,
         )
 
     preprocessing = A.Compose([
@@ -322,7 +324,7 @@ def train_model():
         model_artifact = wandb.Artifact("model", type="model")
         model_artifact.add_file(save_path)
 
-        wandb.log_artifact(model_artifact)
+        run.log_artifact(model_artifact)
 
 
 def sweep_run():
@@ -334,14 +336,18 @@ def sweep_run():
             "model_type": {"values": ["unet", "group_unet"]},
             "lr": {"values": [1e-4]},
             "filters": {"values": [[16, 16, 32, 32], [32, 32, 64, 64]]},
-            "epochs": {"values": [100]},
+            "epochs": {"values": [1]},
+            "kernel_size": {"values": [3]},
             "batch_size": {"values": [8]},
             "full_augmentation": {"values": [True, False]},
+            "res_block": {"values": [True]},
+            "in_channels": {"values": [3]},
+            "out_channels": {"values": [1]},
         },
     }
 
     sweep_id = wandb.sweep(sweep=sweep_configuration, project="group-unet")
-    wandb.agent(sweep_id, function=train_model, count=8)
+    wandb.agent(sweep_id, function=train_model, count=1)
 
 
 def single_run():
@@ -349,15 +355,19 @@ def single_run():
     wandb.config.model_type = "unet"
     wandb.config.filters = [32, 32, 64, 64]
     wandb.config.lr = 1e-4
-    wandb.config.epochs = 50
+    wandb.config.epochs = 5
     wandb.config.batch_size = 32
+    wandb.config.kernel_size = 3
+    wandb.config.in_channels = 3
+    wandb.config.out_channels = 1
+    wandb.config.res_block = True
     wandb.config.full_augmentation = True
     train_model()
 
 
 def main():
     load_dotenv(find_dotenv())
-    single_run()
+    sweep_run()
 
 
 if __name__ == "__main__":
