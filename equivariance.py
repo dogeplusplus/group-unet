@@ -126,7 +126,10 @@ def train_model():
             res_block=res_block,
         )
 
+    # Pad image and mask to preserve information while rotating
+    width = 512
     preprocessing = A.Compose([
+        A.PadIfNeeded(width, width),
         A.Normalize(),
         ToTensorV2(),
     ])
@@ -356,7 +359,7 @@ def single_run():
     wandb.config.filters = [32, 32, 64, 64]
     wandb.config.lr = 1e-4
     wandb.config.epochs = 5
-    wandb.config.batch_size = 32
+    wandb.config.batch_size = 16
     wandb.config.kernel_size = 3
     wandb.config.in_channels = 3
     wandb.config.out_channels = 1
@@ -367,7 +370,7 @@ def single_run():
 
 def main():
     load_dotenv(find_dotenv())
-    sweep_run()
+    single_run()
 
 
 if __name__ == "__main__":
