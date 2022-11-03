@@ -1,4 +1,5 @@
 import os
+import cv2
 import json
 import wandb
 import torch
@@ -39,8 +40,7 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
 
 
 def create_image_grid(images: torch.Tensor, labels: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
-    image_samples = rearrange(images, "b h w c -> b c h w")
-    image_grid = rearrange(make_grid(image_samples, nrow=4), "c h w -> h w c").numpy()
+    image_grid = rearrange(make_grid(images, nrow=4), "c h w -> h w c").numpy()
     mask_grid = rearrange(make_grid(repeat(labels, "b h w -> b 1 h w"), nrow=4), "c h w -> h w c").numpy()
     mask_grid = reduce(mask_grid, "h w c -> h w", "max")
 
@@ -58,7 +58,7 @@ def evaluate_metric(x: torchmetrics.Metric) -> float:
     return x.compute().detach().cpu().numpy()
 
 
-def prepare_butterfly_dataset(train_transform, val_transform):
+def prepare_butterfly_dataset(train_transform, val_transform, preprocessing):
     dataset = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
     np.random.shuffle(dataset)
     validation_ratio = 0.2
@@ -70,8 +70,8 @@ def prepare_butterfly_dataset(train_transform, val_transform):
         "valid": list(map(str, val_images)),
     }
 
-    raw_train_ds = ButterflyDataset(train_images, transform=None)
-    raw_val_ds = ButterflyDataset(val_images, transform=None)
+    raw_train_ds = ButterflyDataset(train_images, transform=preprocessing)
+    raw_val_ds = ButterflyDataset(val_images, transform=preprocessing)
     train_ds = ButterflyDataset(train_images, transform=train_transform)
     val_ds = ButterflyDataset(val_images, transform=val_transform)
 
@@ -127,9 +127,9 @@ def train_model():
         )
 
     # Pad image and mask to preserve information while rotating
-    width = 512
+    width = 384
     preprocessing = A.Compose([
-        A.PadIfNeeded(width, width),
+        A.PadIfNeeded(width, width, border_mode=cv2.BORDER_CONSTANT, value=0),
         A.Normalize(),
         ToTensorV2(),
     ])
@@ -157,7 +157,7 @@ def train_model():
         train_ds,
         val_ds,
         dataset_split,
-    ) = prepare_butterfly_dataset(train_transform, val_transform)
+    ) = prepare_butterfly_dataset(train_transform, val_transform, preprocessing)
 
     file = wandb.Artifact("dataset_split", type="dataset", description="Train/Validation Split")
     with TemporaryDirectory() as temp_dir, open(Path(temp_dir, "dataset_split.json"), "w") as f:
@@ -174,7 +174,8 @@ def train_model():
     train_samples_gt = train_samples_gt[:num_samples]
 
     train_image_grid, train_gt_grid = create_image_grid(train_samples, train_samples_gt)
-    train_samples = preprocess_sample_images(train_samples, preprocessing).to(device)
+    # train_samples = preprocess_sample_images(train_samples, preprocessing).to(device)
+    train_samples = train_samples.to(device)
 
     raw_val_loader = DataLoader(raw_val_ds, batch_size=batch_size, shuffle=True)
     val_samples, val_samples_gt = next(iter(raw_val_loader))
@@ -182,7 +183,8 @@ def train_model():
     val_samples_gt = val_samples_gt[:num_samples]
 
     val_image_grid, val_gt_grid = create_image_grid(val_samples, val_samples_gt)
-    val_samples = preprocess_sample_images(val_samples, preprocessing).to(device)
+    # val_samples = preprocess_sample_images(val_samples, preprocessing).to(device)
+    val_samples = val_samples.to(device)
 
     train_loader = DataLoader(
         train_ds,
@@ -356,9 +358,9 @@ def sweep_run():
 def single_run():
     wandb.init(project="group-unet")
     wandb.config.model_type = "unet"
-    wandb.config.filters = [32, 32, 64, 64]
+    wandb.config.filters = [16, 16, 32, 32]
     wandb.config.lr = 1e-4
-    wandb.config.epochs = 5
+    wandb.config.epochs = 20
     wandb.config.batch_size = 16
     wandb.config.kernel_size = 3
     wandb.config.in_channels = 3
