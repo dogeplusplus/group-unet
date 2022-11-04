@@ -2,12 +2,12 @@ import cv2
 import wandb
 import torch
 import random
-import imageio
 import numpy as np
 import torch.nn as nn
 import albumentations as A
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+import matplotlib.animation as animation
 
 from typing import Tuple, List
 from pathlib import Path
@@ -105,12 +105,11 @@ def overlay(
 
 
 def create_gif(
-    image: torch.Tensor,
-    predictions: torch.Tensor,
+    image: np.ndarray,
+    predictions: np.ndarray,
     angles: List[float],
-    dest: Path
 ):
-    predictions = [x.numpy()[0].astype(np.uint8) * 255 for x in predictions]
+    predictions = [x.astype(np.uint8) * 255 for x in predictions]
     predictions = [rotate(pred, -angle, reshape=False) for pred, angle in zip(predictions, angles)]
     predictions = [overlay(image, pred) for pred in predictions]
 
@@ -121,7 +120,7 @@ def create_gif(
         draw.text((0, 0), f"Angle: {angle}", (255, 255, 255))
         frames.append(frame)
 
-    imageio.mimsave(dest, frames, fps=8)
+    return frames
 
 
 def dice_score(ground_truth: np.ndarray, prediction: np.ndarray) -> float:
@@ -130,7 +129,7 @@ def dice_score(ground_truth: np.ndarray, prediction: np.ndarray) -> float:
     return 2 * intersection / union
 
 
-def evaluate_rotation_equivariance(model: nn.Module, image: np.ndarray, ground_truth: np.ndarray):
+def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.ndarray):
     num_angles = 30
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
@@ -158,13 +157,33 @@ def evaluate_rotation_equivariance(model: nn.Module, image: np.ndarray, ground_t
     plt.show()
 
 
+def visualise_equivariance(model: nn.Module, image: np.ndarray):
+    num_angles = 30
+    angles = np.linspace(0, 360, num_angles)
+    predictions = batched_prediction(model, image, angles).numpy()
+
+    frames_pred = create_gif(image, predictions, angles)
+
+    fig, ax = plt.subplots()
+    ims = []
+    for i, fr in enumerate(frames_pred):
+        im = ax.imshow(fr, animated=True)
+        if i == 0:
+            ax.imshow(fr)
+        ims.append([im])
+
+    ani = animation.ArtistAnimation(fig, ims, interval=100, blit=True, repeat_delay=0)
+    print(ani)
+    plt.show()
+
+
 def main():
     images = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
     image_path = str(random.choice(images))
-    gt_path = image_path.replace("images", "segmentations").replace(".png", "_seg0.png")
+    # gt_path = image_path.replace("images", "segmentations").replace(".png", "_seg0.png")
 
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-    gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
+    # gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
 
     model_path = Path("artifacts", "model:v1", "model.pth")
     state_dict = torch.load(model_path)
@@ -178,7 +197,7 @@ def main():
         res_block=True,
     )
     model.load_state_dict(state_dict)
-    evaluate_rotation_equivariance(model, image, gt)
+    visualise_equivariance(model, image)
 
 
 if __name__ == "__main__":
