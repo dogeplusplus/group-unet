@@ -157,33 +157,42 @@ def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.n
     plt.show()
 
 
-def visualise_equivariance(model: nn.Module, image: np.ndarray):
+def visualise_equivariance(model: nn.Module, image: np.ndarray, ground_truth: np.ndarray):
     num_angles = 30
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
+    ground_truths = np.stack([
+        rotate(ground_truth, angle, reshape=False) for angle in angles
+    ])
 
     frames_pred = create_gif(image, predictions, angles)
+    frames_gt = create_gif(image, ground_truths, angles)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(1, 2)
     ims = []
-    for i, fr in enumerate(frames_pred):
-        im = ax.imshow(fr, animated=True)
-        if i == 0:
-            ax.imshow(fr)
-        ims.append([im])
 
+    for i, (pred, gt) in enumerate(zip(frames_pred, frames_gt)):
+        p = ax[0].imshow(pred, animated=True)
+        g = ax[1].imshow(gt, animated=True)
+        if i == 0:
+            ax[0].imshow(pred)
+            ax[1].imshow(gt)
+        ims.append([p, g])
+
+    # Need to assign ani variable, otherwise animation drops for some reason
     ani = animation.ArtistAnimation(fig, ims, interval=100, blit=True, repeat_delay=0)
-    print(ani)
+    # Make linter happy
+    assert ani is not None
     plt.show()
 
 
 def main():
     images = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
     image_path = str(random.choice(images))
-    # gt_path = image_path.replace("images", "segmentations").replace(".png", "_seg0.png")
+    gt_path = image_path.replace("images", "segmentations").replace(".png", "_seg0.png")
 
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-    # gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
+    gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
 
     model_path = Path("artifacts", "model:v1", "model.pth")
     state_dict = torch.load(model_path)
@@ -197,7 +206,7 @@ def main():
         res_block=True,
     )
     model.load_state_dict(state_dict)
-    visualise_equivariance(model, image)
+    visualise_equivariance(model, image, gt)
 
 
 if __name__ == "__main__":
