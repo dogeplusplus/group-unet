@@ -11,7 +11,6 @@ import matplotlib.animation as animation
 
 from typing import Tuple, List
 from pathlib import Path
-from einops import repeat
 from scipy.ndimage import rotate
 from PIL import Image, ImageDraw
 from tempfile import TemporaryDirectory
@@ -95,12 +94,11 @@ def overlay(
     color: Tuple[int, int, int] = (0, 0, 255),
     alpha: float = 0.5,
 ) -> np.ndarray:
-    color = repeat(np.array(color), "x -> 1 1 x")
-    colored_mask = repeat(mask, "h w -> h w 3")
-    masked = np.ma.MaskedArray(image, mask=colored_mask, fill_value=color)
-    image_overlay = masked.filled()
+    out = np.array(image)
+    image_overlay = np.array(image)
+    image_overlay[mask] = color
 
-    image_combined = cv2.addWeighted(image, 1 - alpha, image_overlay, alpha, 0)
+    image_combined = cv2.addWeighted(image_overlay, 1 - alpha, out, alpha, 0, out)
     return image_combined
 
 
@@ -194,13 +192,13 @@ def main():
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
 
-    model_path = Path("artifacts", "model:v1", "model.pth")
+    model_path = Path("artifacts", "model:v10", "model.pth")
     state_dict = torch.load(model_path)
     model = GroupUNet(
         group=CyclicGroup(4),
         in_channels=3,
         out_channels=1,
-        filters=[32, 32, 64, 64],
+        filters=[16, 16, 32, 32],
         kernel_size=3,
         activation=F.relu,
         res_block=True,
