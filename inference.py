@@ -9,11 +9,12 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import matplotlib.animation as animation
 
+from einops import repeat
 from typing import Tuple, List
 from pathlib import Path
-from scipy.ndimage import rotate
 from PIL import Image, ImageDraw
 from tempfile import TemporaryDirectory
+from torchvision.transforms.functional import rotate
 from albumentations.pytorch.transforms import ToTensorV2
 
 from group_unet.unet import UNet
@@ -35,7 +36,7 @@ def load_model(model_uri: str) -> nn.Module:
             config["out_channels"],
             config["filters"],
             config["kernel_size"],
-            config["stride"],
+            1,
             F.relu,
             config["res_block"]
         )
@@ -63,19 +64,21 @@ def batched_prediction(
     model: nn.Module,
     image: np.ndarray,
     angles: List[float],
+    pad_size: int = 384,
 ) -> torch.Tensor:
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    images = []
-    for angle in angles:
-        images.append(rotate(image, angle, reshape=False))
+    h, w, _ = image.shape
+    assert h == w, "Shape is not square"
 
+    # Pad and rotate images
     preprocessing = A.Compose([
+        A.PadIfNeeded(pad_size, pad_size, border_mode=cv2.BORDER_CONSTANT, value=0),
         A.Normalize(),
         ToTensorV2(),
     ])
-    images = np.stack([preprocessing(image=image)["image"] for image in images])
-    images = torch.from_numpy(images)
+    image = preprocessing(image=image)["image"]
+    images = torch.stack([rotate(image, angle) for angle in angles])
 
     batch_size = 4
     predictions = []
@@ -84,7 +87,13 @@ def batched_prediction(
         pred = torch.squeeze(pred)
         predictions.append(pred)
 
+    # Invert padding and centre crop
     predictions = torch.concat(predictions, dim=0)
+    predictions = torch.concat([
+        rotate(repeat(pred, "... -> 1 ..."), -angle) for pred, angle in zip(predictions, angles)
+    ], dim=0)
+    crop = (pad_size - w) // 2
+    predictions = predictions[:, crop:-crop, crop:-crop]
     return predictions
 
 
@@ -94,10 +103,9 @@ def overlay(
     color: Tuple[int, int, int] = (0, 0, 255),
     alpha: float = 0.5,
 ) -> np.ndarray:
-    out = np.array(image)
-    image_overlay = np.array(image)
-    image_overlay[mask] = color
-
+    out = image.copy()
+    image_overlay = image.copy()
+    image_overlay[np.where(mask)] = color
     image_combined = cv2.addWeighted(image_overlay, 1 - alpha, out, alpha, 0, out)
     return image_combined
 
@@ -108,7 +116,6 @@ def create_gif(
     angles: List[float],
 ):
     predictions = [x.astype(np.uint8) * 255 for x in predictions]
-    predictions = [rotate(pred, -angle, reshape=False) for pred, angle in zip(predictions, angles)]
     predictions = [overlay(image, pred) for pred in predictions]
 
     frames = []
@@ -132,11 +139,7 @@ def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.n
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
 
-    ground_truths = np.stack([
-        rotate(ground_truth, angle, reshape=False) for angle in angles
-    ])
-
-    dices = [dice_score(gt, pred) for gt, pred in zip(ground_truths, predictions)]
+    dices = [dice_score(ground_truth, pred) for pred in predictions]
     fig, ax = plt.subplots(2, 2)
     fig.suptitle("Rotation Equivariance Performance")
     ax[0, 0].set_title("Image")
@@ -159,22 +162,18 @@ def visualise_equivariance(model: nn.Module, image: np.ndarray, ground_truth: np
     num_angles = 30
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
-    ground_truths = np.stack([
-        rotate(ground_truth, angle, reshape=False) for angle in angles
-    ])
-
+    # Pad gt to preserve information during rotation
     frames_pred = create_gif(image, predictions, angles)
-    frames_gt = create_gif(image, ground_truths, angles)
 
     fig, ax = plt.subplots(1, 2)
     ims = []
 
-    for i, (pred, gt) in enumerate(zip(frames_pred, frames_gt)):
+    for i, pred in enumerate(frames_pred):
         p = ax[0].imshow(pred, animated=True)
-        g = ax[1].imshow(gt, animated=True)
+        g = ax[1].imshow(ground_truth, animated=True)
         if i == 0:
             ax[0].imshow(pred)
-            ax[1].imshow(gt)
+            ax[1].imshow(ground_truth)
         ims.append([p, g])
 
     # Need to assign ani variable, otherwise animation drops for some reason
@@ -192,18 +191,7 @@ def main():
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
 
-    model_path = Path("artifacts", "model:v10", "model.pth")
-    state_dict = torch.load(model_path)
-    model = GroupUNet(
-        group=CyclicGroup(4),
-        in_channels=3,
-        out_channels=1,
-        filters=[16, 16, 32, 32],
-        kernel_size=3,
-        activation=F.relu,
-        res_block=True,
-    )
-    model.load_state_dict(state_dict)
+    model = load_model("dogeplusplus/group-unet/model:v9")
     visualise_equivariance(model, image, gt)
 
 
