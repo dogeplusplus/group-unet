@@ -1,3 +1,4 @@
+import os
 import cv2
 import wandb
 import torch
@@ -191,7 +192,8 @@ def main():
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
 
-    model = load_model("dogeplusplus/group-unet/model:v9")
+    version = "model:v9"
+    model = load_model(f"{os.environ['WANDB_USERNAME']}/group-unet/{version}")
     visualise_equivariance(model, image, gt)
 
 
