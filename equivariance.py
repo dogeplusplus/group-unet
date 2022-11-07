@@ -174,7 +174,6 @@ def train_model():
     train_samples_gt = train_samples_gt[:num_samples]
 
     train_image_grid, train_gt_grid = create_image_grid(train_samples, train_samples_gt)
-    # train_samples = preprocess_sample_images(train_samples, preprocessing).to(device)
     train_samples = train_samples.to(device)
 
     raw_val_loader = DataLoader(raw_val_ds, batch_size=batch_size, shuffle=True)
@@ -183,7 +182,6 @@ def train_model():
     val_samples_gt = val_samples_gt[:num_samples]
 
     val_image_grid, val_gt_grid = create_image_grid(val_samples, val_samples_gt)
-    # val_samples = preprocess_sample_images(val_samples, preprocessing).to(device)
     val_samples = val_samples.to(device)
 
     train_loader = DataLoader(
@@ -209,8 +207,6 @@ def train_model():
 
     accumulation_steps = max(1, 64 // batch_size)
     THRESHOLD = 0.5
-
-    def eval_metric(x): return x.compute().detach().cpu().numpy()
 
     loss_fn = nn.BCEWithLogitsLoss()
     for e in range(epochs):
@@ -273,8 +269,8 @@ def train_model():
             "step": step,
             "train/loss": evaluate_metric(train_loss),
             "train/acc": evaluate_metric(train_acc),
-            "val/loss": eval_metric(val_loss),
-            "val/acc": eval_metric(val_acc),
+            "val/loss": evaluate_metric(val_loss),
+            "val/acc": evaluate_metric(val_acc),
         }
 
         # Add image predictions every so often
@@ -358,15 +354,15 @@ def sweep_run():
 def single_run():
     wandb.init(project="group-unet")
     wandb.config.model_type = "unet"
-    wandb.config.filters = [16, 16, 32, 32]
-    wandb.config.lr = 1e-4
-    wandb.config.epochs = 20
-    wandb.config.batch_size = 16
+    wandb.config.filters = [32, 32, 64, 64]
+    wandb.config.lr = 1e-3
+    wandb.config.epochs = 150
+    wandb.config.batch_size = 32
     wandb.config.kernel_size = 3
     wandb.config.in_channels = 3
     wandb.config.out_channels = 1
     wandb.config.res_block = True
-    wandb.config.full_augmentation = True
+    wandb.config.full_augmentation = False
     train_model()
 
 
