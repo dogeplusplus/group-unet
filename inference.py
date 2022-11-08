@@ -1,8 +1,6 @@
-import os
 import cv2
 import wandb
 import torch
-import random
 import numpy as np
 import torch.nn as nn
 import albumentations as A
@@ -13,12 +11,13 @@ import matplotlib.animation as animation
 from einops import repeat
 from typing import Tuple, List
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image
 from tempfile import TemporaryDirectory
 from torchvision.transforms.functional import rotate
 from albumentations.pytorch.transforms import ToTensorV2
 
 from group_unet.unet import UNet
+from equivariance import compute_iou
 from group_unet.group_unet import GroupUNet
 from group_unet.groups.cyclic import CyclicGroup
 
@@ -67,10 +66,7 @@ def batched_prediction(
     angles: List[float],
     pad_size: int = 384,
 ) -> torch.Tensor:
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
     h, w, _ = image.shape
-    assert h == w, "Shape is not square"
 
     # Pad and rotate images
     preprocessing = A.Compose([
@@ -93,8 +89,9 @@ def batched_prediction(
     predictions = torch.concat([
         rotate(repeat(pred, "... -> 1 ..."), -angle) for pred, angle in zip(predictions, angles)
     ], dim=0)
-    crop = (pad_size - w) // 2
-    predictions = predictions[:, crop:-crop, crop:-crop]
+    crop_w = (pad_size - w) // 2
+    crop_h = (pad_size - h) // 2
+    predictions = predictions[:, crop_h:-crop_h, crop_w:-crop_w]
     return predictions
 
 
@@ -114,25 +111,16 @@ def overlay(
 def create_gif(
     image: np.ndarray,
     predictions: np.ndarray,
-    angles: List[float],
 ):
     predictions = [x.astype(np.uint8) * 255 for x in predictions]
     predictions = [overlay(image, pred) for pred in predictions]
 
     frames = []
-    for angle, pred in zip(angles, predictions):
+    for pred in predictions:
         frame = Image.fromarray(pred)
-        draw = ImageDraw.Draw(frame)
-        draw.text((0, 0), f"Angle: {angle}", (255, 255, 255))
         frames.append(frame)
 
     return frames
-
-
-def dice_score(ground_truth: np.ndarray, prediction: np.ndarray) -> float:
-    intersection = np.sum(np.equal(ground_truth, prediction))
-    union = np.sum(ground_truth) + np.sum(prediction)
-    return 2 * intersection / union
 
 
 def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.ndarray):
@@ -140,7 +128,7 @@ def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.n
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
 
-    dices = [dice_score(ground_truth, pred) for pred in predictions]
+    ious = [compute_iou(ground_truth, pred) for pred in predictions]
     fig, ax = plt.subplots(2, 2)
     fig.suptitle("Rotation Equivariance Performance")
     ax[0, 0].set_title("Image")
@@ -148,12 +136,12 @@ def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.n
     ax[0, 1].set_title("Ground Truth")
     ax[0, 1].matshow(ground_truth)
 
-    ax[1, 0].plot(angles, dices)
-    ax[1, 1].hist(dices)
+    ax[1, 0].plot(angles, ious)
+    ax[1, 1].hist(ious)
     ax[1, 0].set_xlabel("Rotation Angle")
-    ax[1, 0].set_ylabel("Dice Score")
+    ax[1, 0].set_ylabel("IoU Score")
 
-    ax[1, 1].set_xlabel("Dice Score")
+    ax[1, 1].set_xlabel("IoU Score")
     ax[1, 1].set_ylabel("Density")
 
     plt.show()
@@ -164,38 +152,30 @@ def visualise_equivariance(model: nn.Module, image: np.ndarray, ground_truth: np
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
     # Pad gt to preserve information during rotation
-    frames_pred = create_gif(image, predictions, angles)
+    frames_pred = create_gif(image, predictions)
 
+    ious = [compute_iou(pred, ground_truth) for pred in predictions]
     fig, ax = plt.subplots(1, 2)
     ims = []
 
-    for i, pred in enumerate(frames_pred):
-        p = ax[0].imshow(pred, animated=True)
-        g = ax[1].imshow(ground_truth, animated=True)
+    ax[0].axis("off")
+    ax[1].set_aspect("auto")
+
+    ax[1].plot(angles, ious)
+    ax[1].set_xlabel("Angle")
+    ax[1].set_ylabel("IoU Score")
+
+    for i, (pred, angle) in enumerate(zip(frames_pred, angles)):
+        ax[0].text(128, 0, f"Angle: {angle}", animated=True)
+        pred_plot = ax[0].imshow(pred, animated=True)
+        scores = ax[1].plot(angles, ious, animated=True, c="b")[0]
         if i == 0:
             ax[0].imshow(pred)
-            ax[1].imshow(ground_truth)
-        ims.append([p, g])
+            ax[1].plot(angles, ious, c="b")
+        ims.append([pred_plot, scores])
 
     # Need to assign ani variable, otherwise animation drops for some reason
     ani = animation.ArtistAnimation(fig, ims, interval=100, blit=True, repeat_delay=0)
     # Make linter happy
     assert ani is not None
     plt.show()
-
-
-def main():
-    images = list(Path("data", "leedsbutterfly_resized", "images").rglob("*.png"))
-    image_path = str(random.choice(images))
-    gt_path = image_path.replace("images", "segmentations").replace(".png", "_seg0.png")
-
-    image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-    gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE) / 255
-
-    version = "model:v9"
-    model = load_model(f"{os.environ['WANDB_USERNAME']}/group-unet/{version}")
-    visualise_equivariance(model, image, gt)
-
-
-if __name__ == "__main__":
-    main()
