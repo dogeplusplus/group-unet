@@ -111,9 +111,10 @@ def overlay(
 def create_gif(
     image: np.ndarray,
     predictions: np.ndarray,
+    color: Tuple[int, int, int] = (0, 0, 255),
 ):
     predictions = [x.astype(np.uint8) * 255 for x in predictions]
-    predictions = [overlay(image, pred) for pred in predictions]
+    predictions = [overlay(image, pred, color) for pred in predictions]
 
     frames = []
     for pred in predictions:
@@ -147,15 +148,21 @@ def equivariance_scoring(model: nn.Module, image: np.ndarray, ground_truth: np.n
     plt.show()
 
 
-def visualise_equivariance(model: nn.Module, image: np.ndarray, ground_truth: np.ndarray):
+def visualise_equivariance(
+    model: nn.Module,
+    image: np.ndarray,
+    ground_truth: np.ndarray,
+    color: Tuple[int, int, int],
+    destination: str = "equivariance.gif",
+):
     num_angles = 30
     angles = np.linspace(0, 360, num_angles)
     predictions = batched_prediction(model, image, angles).numpy()
     # Pad gt to preserve information during rotation
-    frames_pred = create_gif(image, predictions)
+    frames_pred = create_gif(image, predictions, color)
 
     ious = [compute_iou(pred, ground_truth) for pred in predictions]
-    fig, ax = plt.subplots(1, 2)
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
     ims = []
 
     ax[0].axis("off")
@@ -165,17 +172,16 @@ def visualise_equivariance(model: nn.Module, image: np.ndarray, ground_truth: np
     ax[1].set_xlabel("Angle")
     ax[1].set_ylabel("IoU Score")
 
+    mpl_color = tuple(x / 255 for x in color)
     for i, (pred, angle) in enumerate(zip(frames_pred, angles)):
-        ax[0].text(128, 0, f"Angle: {angle}", animated=True)
         pred_plot = ax[0].imshow(pred, animated=True)
-        scores = ax[1].plot(angles, ious, animated=True, c="b")[0]
+        title = ax[0].text(0.5, 1.01, f"Angle: {angle:.0f}", horizontalalignment="center", transform=ax[0].transAxes)
+        scores = ax[1].plot(angles, ious, animated=True, c=mpl_color)[0]
         if i == 0:
             ax[0].imshow(pred)
-            ax[1].plot(angles, ious, c="b")
-        ims.append([pred_plot, scores])
+            ax[1].plot(angles, ious, c=mpl_color)
+        ims.append([pred_plot, scores, title])
 
     # Need to assign ani variable, otherwise animation drops for some reason
-    ani = animation.ArtistAnimation(fig, ims, interval=100, blit=True, repeat_delay=0)
-    # Make linter happy
-    assert ani is not None
-    plt.show()
+    ani = animation.ArtistAnimation(fig, ims, interval=50, blit=False, repeat_delay=0)
+    ani.save(destination)
